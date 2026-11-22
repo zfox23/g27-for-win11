@@ -22,8 +22,10 @@ VID = 0x046D
 PID_NATIVE = 0xC29B  # G27 after the native-mode switch
 PID_COMPAT = 0xC294  # what the G27 shows up as at power-up (Driving Force EX mode)
 
-# bcdDevice check from hid-lg4ff: identifies a G27 while it is in compat mode
-G27_REV_MASK, G27_REV_VALUE = 0xFFF8, 0x1230
+# bcdDevice check: identifies a G27 while it is in compat mode. hid-lg4ff uses
+# mask 0xFFF8 (0x1230-0x1237), but real G27s also ship with later firmware such
+# as 0x1238, so accept the whole 0x123x range. (G25s report 0x12xx below that.)
+G27_REV_MASK, G27_REV_VALUE = 0xFFF0, 0x1230
 
 NATIVE_SWITCH = (
     (0xF8, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00),
