@@ -1,8 +1,8 @@
 -- G27 Bridge for BeamNG.drive
 --
--- Sends the steering-rack force of the vehicle you're driving to bridge.py
--- over UDP (127.0.0.1:4445). bridge.py turns it into G27 force feedback, so
--- no Logitech driver is needed.
+-- Sends the steering-rack force of the vehicle you're driving to the G27
+-- bridge over UDP (127.0.0.1:4445). The bridge (python -m g27bridge beamng)
+-- turns it into G27 force feedback, so no Logitech driver is needed.
 --
 -- Packet (text): "G27B1 <rackForce> <steer> <steerVel> <rpm> <maxRpm> <speed> <rackBeams>"
 

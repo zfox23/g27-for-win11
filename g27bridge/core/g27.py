@@ -7,12 +7,12 @@ native-mode switch, rotation range, autocenter spring, constant force, LEDs.
 The command bytes come from the Linux hid-lg4ff driver, which has supported
 the G27 for over a decade.
 
-Usage:
-    python g27.py info
-    python g27.py native            # switch to native mode (900 deg, clutch, shifter)
-    python g27.py range 540         # set rotation lock-to-lock, 40-900
-    python g27.py autocenter 30     # centering spring strength in %, 0 = off
-    python g27.py test-ffb          # short left/right push to confirm FFB works
+Usage (from the repo root):
+    python -m g27bridge wheel info
+    python -m g27bridge wheel native            # switch to native mode (900 deg, clutch, shifter)
+    python -m g27bridge wheel range 540         # set rotation lock-to-lock, 40-900
+    python -m g27bridge wheel autocenter 30     # centering spring strength in %, 0 = off
+    python -m g27bridge wheel test-ffb          # short left/right push to confirm FFB works
 """
 import argparse
 import sys
@@ -192,8 +192,8 @@ def _cmd_info(_args):
         print("No G27 found.")
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(description="Control a Logitech G27 without Logitech drivers.")
+def main(argv=None, prog=None):
+    p = argparse.ArgumentParser(prog=prog, description="Control a Logitech G27 without Logitech drivers.")
     p.add_argument("--force", action="store_true",
                    help="skip the G27 revision check when switching modes")
     sub = p.add_subparsers(dest="cmd", required=True)
