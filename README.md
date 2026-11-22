@@ -63,6 +63,7 @@ Leave it running while you play. It switches the wheel to native mode, sets the 
 | `[` / `]` | damping ±0.01 (raise if the wheel oscillates on straights) |
 | `,` / `.` | steering range ±30° (change BeamNG's *Steering wheel rotation* to match) |
 | `i` | invert force direction |
+| `l` | rev LEDs on/off |
 | `s` | save settings to `config.json` |
 | `q` | quit (the wheel goes back to a gentle centering spring) |
 

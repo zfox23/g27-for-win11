@@ -9,7 +9,8 @@ drives the G27's motors directly over HID. No Logitech drivers needed.
 Live keys (in this console window):
     +/-   strength          [/]   damping
     ,/.   steering range      i   invert force direction
-    s     save settings       q   quit
+    l     rev LEDs on/off     s   save settings
+    q     quit
 """
 import argparse
 import json
@@ -77,7 +78,9 @@ class ForceProcessor:
 
     def process(self, pkt):
         c = self.cfg
-        f = pkt["force"] / max(c["full_scale"], 1e-6) * c["strength"]
+        # BeamNG's rack force sign is opposite to the G27's torque direction,
+        # so negate by default; "invert" flips it back for odd vehicles.
+        f = -pkt["force"] / max(c["full_scale"], 1e-6) * c["strength"]
         if c["invert"]:
             f = -f
         a = min(max(c["smoothing"], 0.0), 0.95)
@@ -162,7 +165,7 @@ def run(cfg, wheel, cfg_path, max_seconds=None):
     started = time.monotonic()
 
     print(f"Listening for BeamNG on 127.0.0.1:{cfg['port']}. Start driving.")
-    print("Keys: +/- strength  [/] damping  ,/. range  i invert  s save  q quit\n")
+    print("Keys: +/- strength  [/] damping  ,/. range  i invert  l LEDs  s save  q quit\n")
     try:
         while True:
             now = time.monotonic()
@@ -185,6 +188,11 @@ def run(cfg, wheel, cfg_path, max_seconds=None):
                     cfg["range"] = wheel.set_range(cfg["range"] - 30)
                 elif ch in "iI":
                     cfg["invert"] = not cfg["invert"]
+                elif ch in "lL":
+                    cfg["leds"] = not cfg["leds"]
+                    if not cfg["leds"]:
+                        wheel.set_leds(0)
+                    note = f"LEDs {'on' if cfg['leds'] else 'off'}"
                 elif ch in "sS":
                     save_config(cfg_path, cfg)
                     note = "saved"
@@ -244,11 +252,13 @@ def run(cfg, wheel, cfg_path, max_seconds=None):
                     line = (f"raw {pkt['force']:8.0f}  peak {peak:7.0f}  out {out * 100:5.0f}%"
                             f"{' CLIP' if proc.clipped else '     '}  str {cfg['strength']:.1f}"
                             f"  damp {cfg['damping']:.2f}  range {cfg['range']}"
-                            f"  inv {'on ' if cfg['invert'] else 'off'}  {src}")
+                            f"  inv {'on ' if cfg['invert'] else 'off'}"
+                            f"  leds {'on ' if cfg['leds'] else 'off'}  {src}")
                 else:
                     line = (f"waiting for game...  str {cfg['strength']:.1f}  damp "
                             f"{cfg['damping']:.2f}  range {cfg['range']}  inv "
-                            f"{'on ' if cfg['invert'] else 'off'}")
+                            f"{'on ' if cfg['invert'] else 'off'}  leds "
+                            f"{'on ' if cfg['leds'] else 'off'}")
                 if note:
                     line += f"  [{note}]"
                     note = ""
