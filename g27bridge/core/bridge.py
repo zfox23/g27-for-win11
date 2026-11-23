@@ -34,7 +34,7 @@ CORE_DEFAULTS = {
     "range": 540,              # wheel rotation lock-to-lock, degrees (40-900)
     "strength": 1.0,           # overall gain
     "invert": False,           # flip if the wheel pushes away from centre
-    "smoothing_ms": 7.0,       # low-pass time constant on the game force; 0 = raw
+    "smoothing_ms": 3.0,       # low-pass on the game force (~its delay in ms); 0 = raw
     "damping": 0.05,           # torque fraction per 270 deg/s of wheel speed
     "min_force": 0.04,         # lifts small forces past the G27's gear deadband
     "idle_autocenter": 0.3,    # spring when the game isn't sending (menus, pause)
@@ -197,17 +197,22 @@ class ForceProcessor:
         self.damp = 0.0
         self.clipped = False
 
-    def reset(self):
-        self.s1 = self.s2 = 0.0
+    def reset(self, force=0.0):
+        """Start the filter settled on a value (in output units after
+        strength/invert), so a fade-in is a pure gain ramp."""
+        self.s1 = self.s2 = force
+
+    def shape(self, force):
+        c = self.cfg
+        f = force * c["strength"]
+        return -f if c["invert"] else f
 
     def process(self, dt, force, vel_dps, gain):
         """force: game request (None = hold the last value, e.g. while fading
         out); vel_dps: wheel velocity; gain: 0..1 crossfade on the game force."""
         c = self.cfg
         if force is not None:
-            f = force * c["strength"]
-            if c["invert"]:
-                f = -f
+            f = self.shape(force)
             # Critically damped 2-pole low-pass, time constant split across the
             # two stages. Runs every tick, so it also turns the game's 60-120 Hz
             # steps into a smooth signal, and it behaves the same at any packet rate.
@@ -397,7 +402,7 @@ def run(adapter, wheel, cfg_path, axis_sign, max_seconds=None):
                 gain_target, spring_target = 0.0, idle
             fade_s = max(cfg["fade_ms"], 1) / 1000.0
             if gain == 0.0 and game_force is not None:
-                proc.reset()  # start from rest, not from a stale value
+                proc.reset(proc.shape(game_force))  # settle on the current force, not a stale one
             gain += max(-dt / fade_s, min(dt / fade_s, gain_target - gain))
             spring.update(now, dt, spring_target, max(idle, 0.1) / fade_s)
 

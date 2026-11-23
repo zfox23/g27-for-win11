@@ -77,7 +77,7 @@ Every game has its own settings file. These settings apply to all of them. Game-
 | `range` | 540 | rotation lock-to-lock in degrees |
 | `strength` | 1.0 | overall gain |
 | `invert` | false | flip force direction |
-| `smoothing_ms` | 7 | low-pass time constant on the game force in ms; 0 = raw, higher = smoother but laggier |
+| `smoothing_ms` | 3 | low-pass on the game force, roughly its added delay in ms; 0 = raw, higher = smoother but less road detail |
 | `damping` | 0.05 | torque fraction per 270°/s of wheel speed (same feel at any range) |
 | `min_force` | 0.04 | lifts small forces past the G27's gear deadband |
 | `idle_autocenter` | 0.3 | spring strength in menus or when paused (rack-less cars: 30% at standstill, rising to this at 15 m/s) |
@@ -85,7 +85,7 @@ Every game has its own settings file. These settings apply to all of them. Game-
 | `leds` | true | rev LEDs |
 | `timeout_ms` | 250 | no telemetry for this long → idle (spring) |
 
-Settings files saved by older versions with `smoothing` (a 0–0.95 factor) are converted to `smoothing_ms` automatically.
+Settings files saved by older versions with `smoothing` (a 0–0.95 factor) are converted to `smoothing_ms` automatically. The old default 0.3 becomes about 7 ms; set it to 3 for the current, more responsive default.
 
 `config/wheel.json` holds the wheel's calibration (`force_axis_sign`) and is shared by all games.
 
