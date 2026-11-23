@@ -1,27 +1,40 @@
 """BeamNG.drive adapter.
 
-The g27bridge mod (mod/ in this folder, packed as g27bridge.zip) sends the
-steering-rack force of the player's vehicle over UDP to 127.0.0.1:<port>.
+The g27bridge mod (mod/ in this folder, packed as g27bridge.zip) computes the
+player vehicle's steering force the way BeamNG's own FFB does and sends it
+over UDP to 127.0.0.1:<port>.
 
-Packet (text): "G27B1 <rackForce> <steer> <steerVel> <rpm> <maxRpm> <speed> <rackBeams>"
+Packet (text): "G27B2 <ffb> <steer> <steerVel> <rpm> <maxRpm> <speed> <hydros>"
+    ffb: 1.0 = BeamNG's full FFB torque at its default strength; positive
+         pushes the wheel towards negative steering (left).
 """
 import os
 import socket
 
 from ...core.bridge import Adapter, Frame
 
+LOWSPEED_FULL = 5 / 3.6   # m/s; BeamNG ramps FFB from 10% at rest to 100% here
+LOWSPEED_MIN = 0.1
+
 
 def parse_packet(data):
-    """Return a dict from a 'G27B1 ...' packet, or None if it isn't one."""
+    """Return a dict from a 'G27B1'/'G27B2' packet, or None if it isn't one."""
     try:
         parts = data.decode("ascii").split()
-        if len(parts) != 8 or parts[0] != "G27B1":
+        if len(parts) != 8 or parts[0] not in ("G27B1", "G27B2"):
             return None
         force, steer, vel, rpm, maxrpm, speed = map(float, parts[1:7])
-        return {"force": force, "steer": steer, "steer_vel": vel, "rpm": rpm,
-                "max_rpm": maxrpm, "speed": speed, "rack_beams": int(parts[7])}
+        return {"version": parts[0], "force": force, "steer": steer, "steer_vel": vel,
+                "rpm": rpm, "max_rpm": maxrpm, "speed": speed, "rack": int(parts[7])}
     except (UnicodeDecodeError, ValueError):
         return None
+
+
+def lowspeed_coef(speed):
+    """BeamNG's default 'lowspeedCoef': FFB is 10% when parked, rising
+    linearly to full at 5 km/h, so tyre scrub doesn't fight you in car parks."""
+    k = min(max(abs(speed) / LOWSPEED_FULL, 0.0), 1.0)
+    return LOWSPEED_MIN + (1.0 - LOWSPEED_MIN) * k
 
 
 class BeamNGAdapter(Adapter):
@@ -29,7 +42,6 @@ class BeamNGAdapter(Adapter):
     title = "BeamNG"
     defaults = {
         "port": 4445,
-        "full_scale": 2000.0,  # rack force that equals 100% wheel torque at strength 1
     }
     # Settings saved before the repo split into apps; read if config/beamng.json is absent.
     legacy_config = os.path.join(
@@ -37,6 +49,9 @@ class BeamNGAdapter(Adapter):
 
     def __init__(self, cfg):
         super().__init__(cfg)
+        # 'full_scale' calibrated the old mod's raw beam force; the force is now
+        # already normalised, and 'strength' is the only gain.
+        cfg.pop("full_scale", None)
         self.sock = None
         self.pkt = None
         self.peak = 0.0
@@ -64,20 +79,26 @@ class BeamNGAdapter(Adapter):
             return None
 
         self.pkt = newest
-        self.peak = max(self.peak, abs(newest["force"]))
+        speed = abs(newest["speed"])
         rpm_frac = newest["rpm"] / newest["max_rpm"] if newest["max_rpm"] > 0 else None
-        if newest["rack_beams"] == 0:  # vehicle has no readable steering rack
+        # The old mod (G27B1) read the wrong beam; its force is noise. Hold the
+        # spring until the mod is updated.
+        if newest["version"] != "G27B2" or newest["rack"] == 0:
             return Frame(force=None, steer_vel=newest["steer_vel"], rpm_frac=rpm_frac,
-                         speed=abs(newest["speed"]))
-        # BeamNG's rack force sign is opposite to the G27's torque direction.
-        force = -newest["force"] / max(self.cfg["full_scale"], 1e-6)
+                         speed=speed)
+        self.peak = max(self.peak, abs(newest["force"]))
+        # Mod: + pushes towards left. Frame: + turns the wheel right.
+        force = -newest["force"] * lowspeed_coef(speed)
         return Frame(force=force, steer_vel=newest["steer_vel"], rpm_frac=rpm_frac,
-                     speed=abs(newest["speed"]))
+                     speed=speed)
 
     def status(self, frame):
         p = self.pkt
-        src = "rack" if p["rack_beams"] else "NO RACK (spring only)"
-        return f"raw {p['force']:8.0f}  peak {self.peak:7.0f}  {src}"
+        if p["version"] != "G27B2":
+            return "OLD MOD: replace g27bridge.zip in BeamNG's mods folder (spring only)"
+        if not p["rack"]:
+            return "NO RACK (spring only)"
+        return f"ffb {p['force'] * 100:5.0f}%  peak {self.peak * 100:4.0f}%"
 
     def close(self):
         if self.sock:

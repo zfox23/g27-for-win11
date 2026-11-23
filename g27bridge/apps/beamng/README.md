@@ -1,6 +1,6 @@
 # BeamNG.drive
 
-The BeamNG mod (`g27bridge.zip`, source in `mod/`) reads the steering-rack force of the car you're driving and sends it to the bridge on your own PC (UDP, `127.0.0.1:4445`). The BeamNG side uses documented modding hooks. Two engine calls are tried with fallbacks.
+The BeamNG mod (`g27bridge.zip`, source in `mod/`) computes the steering force of the car you're driving and sends it to the bridge on your own PC (UDP, `127.0.0.1:4445`). It uses the same signal as BeamNG's built-in FFB: how far the steering rack lags the position your steering input asks for. It samples that on every physics step (2 kHz) and averages it over each send, so the rack's high-frequency buzz doesn't turn into noise in the wheel.
 
 Do the general setup in the [main README](../../../README.md) first (driver removal, Python install).
 
@@ -10,7 +10,7 @@ Copy `g27bridge/apps/beamng/g27bridge.zip` (don't unzip it) into your BeamNG use
 
 If you edit the Lua in `mod/`, re-zip it so that `lua/` is at the top of the zip.
 
-**Updating:** replace the zip in your `mods` folder when you update this repo. The current mod sends at a steady 120 Hz at any frame rate. Older copies still work, but at some frame rates they send at as little as half that rate.
+**Updating:** replace the zip in your `mods` folder when you update this repo, then reload the vehicle (`Ctrl+R`). Copies of the mod from before the `G27B2` packet read the wrong beam and give no real force: the bridge ignores them, holds a plain centering spring, and says `OLD MOD` in the status line.
 
 ## 2. Bind the controls
 
@@ -26,7 +26,7 @@ Run the bridge first (step 3) so the wheel is in native mode before you bind any
 python -m g27bridge beamng          (or double-click start_beamng.bat)
 ```
 
-The status line shows `raw` (rack force from the game) and `peak` before the common values. A good starting point is setting `full_scale` to about 70% of the peaks you see in normal driving.
+The status line shows `ffb` (the game's steering force, where 100% is BeamNG's full torque at its default FFB strength of 100) and its `peak`. Tune the weight with `+`/`-` (`strength`). Below 5 km/h the force is scaled down to 10% at standstill, as BeamNG does by default, so tyre scrub doesn't fight you when parking.
 
 ## BeamNG settings (`config/beamng.json`)
 
@@ -34,10 +34,9 @@ These come on top of the [common settings](../../../README.md#settings-configgam
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `full_scale` | 2000 | rack force that gives 100% torque at strength 1 |
 | `port` | 4445 | UDP port the mod sends to (the mod's port is fixed in its Lua) |
 
-A `config.json` saved by older versions in the repo root is still read until you save a new `config/beamng.json`.
+A `config.json` saved by older versions in the repo root is still read until you save a new `config/beamng.json`. The old `full_scale` setting is no longer used and is dropped the next time you save.
 
 ## Troubleshooting
 

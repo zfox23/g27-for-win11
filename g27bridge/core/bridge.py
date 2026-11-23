@@ -45,7 +45,10 @@ CORE_DEFAULTS = {
 
 TICK_S = 0.002               # control loop period (~500 Hz)
 DAMPING_REF_DPS = 270.0      # damping = torque fraction at this wheel speed
-MIN_FORCE_KNEE = 0.02        # below this the deadband lift ramps in linearly
+MIN_FORCE_KNEE = 0.1         # below this the deadband lift ramps in linearly. Wide on
+                             # purpose: the ramp's slope is extra gain right at centre,
+                             # where a steep one makes the wheel hunt and clunk
+DEFAULT_AXIS_SIGN = -1       # G27: positive constant force turns towards lower axis values
 VEL_WINDOW_S = 0.008         # differentiate wheel angle over at least this span
 VEL_TAU_S = 0.005            # low-pass on wheel velocity
 VEL_DEADZONE_DPS = 3.0       # ignore encoder jitter below this speed
@@ -59,9 +62,10 @@ SPRING_STEP = 0.02           # min spring change worth sending
 class Frame:
     """One telemetry update from an adapter.
 
-    force:     wheel torque request where +/-1.0 is full torque at strength 1,
-               already in the G27's sign convention. None means the game gives
-               no usable force right now; the bridge holds a centering spring.
+    force:     wheel torque request where +/-1.0 is full torque at strength 1
+               and positive turns the wheel right (towards positive steering).
+               None means the game gives no usable force right now; the
+               bridge holds a centering spring.
     steer_vel: steering velocity in steering-input units (-1..1 lock to lock)
                per second. Only used for damping if the wheel's own position
                can't be read over HID.
@@ -187,11 +191,15 @@ class WheelState:
 
 class ForceProcessor:
     """Shapes the game's force request and the damping into a -1..1 wheel
-    command, once per control tick."""
+    command, once per control tick. Works in steering-direction units
+    (+ = right) and maps to the G27's force sign at the end."""
 
     def __init__(self, cfg, axis_sign):
         self.cfg = cfg
-        self.axis_sign = axis_sign  # see g27.load_axis_sign; 0 disables damping
+        # See g27.load_axis_sign. 0 = not calibrated: assume the usual G27
+        # direction for the game force, but leave damping off.
+        self.axis_sign = axis_sign
+        self.out_sign = axis_sign or DEFAULT_AXIS_SIGN
         self.s1 = self.s2 = 0.0
         self.game = 0.0
         self.damp = 0.0
@@ -224,12 +232,12 @@ class ForceProcessor:
             else:
                 self.s1 = self.s2 = f
         self.game = self.s2 * gain
-        # Viscous damping opposes the wheel's motion in its own axis.
-        self.damp = -self.axis_sign * c["damping"] * vel_dps / DAMPING_REF_DPS
+        # Viscous damping opposes the wheel's motion (vel_dps: + = right).
+        self.damp = -c["damping"] * vel_dps / DAMPING_REF_DPS if self.axis_sign else 0.0
         out = self.game + self.damp
         self.clipped = abs(out) > 1.0
         out = max(-1.0, min(1.0, out))
-        return lift(out, c["min_force"]) if out else 0.0
+        return self.out_sign * lift(out, c["min_force"]) if out else 0.0
 
 
 class SpringRamp:

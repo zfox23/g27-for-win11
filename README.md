@@ -62,7 +62,7 @@ Follow the setup page for your game in the table above. Then run its bridge and 
 
 **First drive, check the direction:** in a corner, the wheel should pull back towards centre. If it pushes further into the turn, press **`i`**, then **`s`**.
 
-The status line starts with game-specific values, then shows `out` (wheel torque %). If `CLIP` shows often, lower strength (or the game's force scale; see its setup page). After `damp`, `(hid)` means damping uses the wheel's own measured speed, `(game)` means the game's steering input (fallback), and `(uncal)` means damping is off until calibration succeeds. The last value is the control loop rate (about 500 Hz).
+The status line starts with game-specific values, then shows `out` (wheel torque %). If `CLIP` shows often, lower strength. After `damp`, `(hid)` means damping uses the wheel's own measured speed, `(game)` means the game's steering input (fallback), and `(uncal)` means damping is off until calibration succeeds. The last value is the control loop rate (about 500 Hz).
 
 **How the force is built:** the bridge runs a fixed ~500 Hz loop. It smooths the game's force with a short low-pass filter, which also turns the game's 60–120 Hz updates into a smooth signal. It adds viscous damping from the wheel's angle, read straight from the wheel over HID, then lifts small forces past the G27's gear deadband without a step at centre. When the game starts or stops sending (or a car has no readable rack), the game force and the wheel's centering spring crossfade instead of snapping. For cars without a rack, the spring firms up with speed.
 
