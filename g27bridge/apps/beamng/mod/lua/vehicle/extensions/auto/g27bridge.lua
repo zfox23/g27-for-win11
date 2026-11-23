@@ -17,7 +17,8 @@ local rack = nil       -- list of { cid = beam id, sign = +1/-1 }
 local forceApi = nil   -- name of the obj method that returns beam force
 local engine = nil
 local prevSteer = nil
-local sendAcc = 0
+local sendAcc = 0      -- time owed towards the next send (keeps the remainder)
+local sinceSend = 0    -- actual time since the last send, for steerVel
 
 local function loadSocket()
   for _, name in ipairs({ "libs/luasocket/socket.socket", "socket.socket", "socket" }) do
@@ -81,6 +82,7 @@ end
 local function onReset()
   prevSteer = nil
   sendAcc = 0
+  sinceSend = 0
 end
 
 local function updateGFX(dt)
@@ -89,9 +91,14 @@ local function updateGFX(dt)
   if not rack then findRack() end
 
   sendAcc = sendAcc + dt
+  sinceSend = sinceSend + dt
   if sendAcc < SEND_INTERVAL then return end
-  local step = sendAcc
-  sendAcc = 0
+  -- Carry the remainder so the average rate is 120 Hz at any frame rate
+  -- (resetting to 0 halved it at e.g. 144 fps). Below 120 fps, send every frame.
+  sendAcc = sendAcc - SEND_INTERVAL
+  if sendAcc >= SEND_INTERVAL then sendAcc = 0 end
+  local step = sinceSend
+  sinceSend = 0
 
   local force = 0
   if forceApi then

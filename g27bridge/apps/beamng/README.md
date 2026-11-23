@@ -10,6 +10,8 @@ Copy `g27bridge/apps/beamng/g27bridge.zip` (don't unzip it) into your BeamNG use
 
 If you edit the Lua in `mod/`, re-zip it so that `lua/` is at the top of the zip.
 
+**Updating:** replace the zip in your `mods` folder when you update this repo. The current mod sends at a steady 120 Hz at any frame rate. Older copies still work, but at some frame rates they send at as little as half that rate.
+
 ## 2. Bind the controls
 
 Run the bridge first (step 3) so the wheel is in native mode before you bind anything. Native mode gives separate pedal axes, the clutch and the shifter. Then, in *Options → Controls → Bindings*:

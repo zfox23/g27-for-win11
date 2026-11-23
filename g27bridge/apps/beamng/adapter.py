@@ -44,19 +44,18 @@ class BeamNGAdapter(Adapter):
     def open(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", int(self.cfg["port"])))
+        self.sock.setblocking(False)
         return f"127.0.0.1:{self.cfg['port']}"
 
     def poll(self):
-        # Wait up to 10 ms for a packet, then drain the queue and keep the newest.
+        # Drain whatever has arrived and keep the newest packet. Never blocks.
         newest = None
-        self.sock.settimeout(0.01)
         try:
             while True:
                 data, _ = self.sock.recvfrom(512)
                 p = parse_packet(data)
                 if p:
                     newest = p
-                self.sock.settimeout(0)
         except (socket.timeout, BlockingIOError):
             pass
         except ConnectionResetError:  # Windows reports ICMP errors on UDP sockets
@@ -68,10 +67,12 @@ class BeamNGAdapter(Adapter):
         self.peak = max(self.peak, abs(newest["force"]))
         rpm_frac = newest["rpm"] / newest["max_rpm"] if newest["max_rpm"] > 0 else None
         if newest["rack_beams"] == 0:  # vehicle has no readable steering rack
-            return Frame(force=None, rpm_frac=rpm_frac)
+            return Frame(force=None, steer_vel=newest["steer_vel"], rpm_frac=rpm_frac,
+                         speed=abs(newest["speed"]))
         # BeamNG's rack force sign is opposite to the G27's torque direction.
         force = -newest["force"] / max(self.cfg["full_scale"], 1e-6)
-        return Frame(force=force, steer_vel=newest["steer_vel"], rpm_frac=rpm_frac)
+        return Frame(force=force, steer_vel=newest["steer_vel"], rpm_frac=rpm_frac,
+                     speed=abs(newest["speed"]))
 
     def status(self, frame):
         p = self.pkt

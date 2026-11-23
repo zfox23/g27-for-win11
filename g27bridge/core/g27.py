@@ -13,8 +13,13 @@ Usage (from the repo root):
     python -m g27bridge wheel range 540         # set rotation lock-to-lock, 40-900
     python -m g27bridge wheel autocenter 30     # centering spring strength in %, 0 = off
     python -m g27bridge wheel test-ffb          # short left/right push to confirm FFB works
+    python -m g27bridge wheel monitor           # show the wheel position read over HID
+    python -m g27bridge wheel calibrate         # learn which way + force turns the wheel
 """
 import argparse
+import contextlib
+import json
+import os
 import sys
 import time
 
@@ -31,6 +36,14 @@ NATIVE_SWITCH = (
     (0xF8, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00),
     (0xF8, 0x09, 0x04, 0x01, 0x00, 0x00, 0x00),
 )
+
+
+# Repo root / config / wheel.json: per-wheel calibration shared by all games.
+WHEEL_CONFIG = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "config", "wheel.json")
+
+AXIS_MAX = 0x3FFF  # the native-mode wheel axis is 14 bits, left = 0
 
 
 class G27Error(Exception):
@@ -117,7 +130,22 @@ class G27:
         devs = find(PID_NATIVE)
         if not devs:
             raise G27Error("G27 disappeared after the native-mode switch.")
-        return cls(_open_path(devs[0]["path"]))
+        dev = _open_path(devs[0]["path"])
+        dev.set_nonblocking(1)
+        return cls(dev)
+
+    def read_position(self):
+        """Drain pending input reports. Return (raw 0..16383, perf_counter
+        time) of the newest, or None if no new report arrived."""
+        newest = None
+        for _ in range(64):
+            data = self.dev.read(64)
+            if not data:
+                break
+            raw = parse_wheel(data)
+            if raw is not None:
+                newest = raw
+        return None if newest is None else (newest, time.perf_counter())
 
     def send(self, *cmd):
         _write(self.dev, cmd)
@@ -172,6 +200,105 @@ class G27:
             pass
 
 
+def parse_wheel(report):
+    """Wheel axis from a native-mode G27 input report (no report ID): 14 bits,
+    low 6 in the top of byte 3, high 8 in byte 4. Returns None if too short."""
+    if len(report) < 5:
+        return None
+    return (report[4] << 6) | (report[3] >> 2)
+
+
+def angle_deg(raw, range_deg):
+    """Wheel angle in degrees from centre (+ = towards higher axis values). In
+    native mode the firmware scales the full axis to the configured range."""
+    return (raw / AXIS_MAX - 0.5) * range_deg
+
+
+@contextlib.contextmanager
+def timer_resolution():
+    """1 ms sleep resolution on Windows for the bridge's control loop (Python
+    3.11+ already has it; older versions sleep in ~15 ms steps without this)."""
+    winmm = None
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            winmm = ctypes.WinDLL("winmm")
+            winmm.timeBeginPeriod(1)
+        except (OSError, AttributeError):
+            winmm = None
+    try:
+        yield
+    finally:
+        if winmm:
+            winmm.timeEndPeriod(1)
+
+
+def load_axis_sign():
+    """Saved calibration: +1 if positive force turns the wheel towards higher
+    axis values, -1 if lower, None if not calibrated yet."""
+    try:
+        with open(WHEEL_CONFIG) as f:
+            sign = int(json.load(f).get("force_axis_sign", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return sign if sign in (-1, 1) else None
+
+
+def save_axis_sign(sign):
+    os.makedirs(os.path.dirname(WHEEL_CONFIG), exist_ok=True)
+    data = {}
+    try:
+        with open(WHEEL_CONFIG) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        pass
+    data["force_axis_sign"] = sign
+    with open(WHEEL_CONFIG, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _collect(wheel, seconds, level=None):
+    """Hold a force (or none) for a while; return the wheel readings seen."""
+    if level is not None:
+        wheel.set_force(level)
+    seen = []
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        pos = wheel.read_position()
+        if pos:
+            seen.append(pos[0])
+        time.sleep(0.002)
+    return seen
+
+
+def calibrate(wheel, level=0.25, push_s=0.25, log=print):
+    """Push the wheel briefly and see which way it turns. Returns +1/-1 (see
+    load_axis_sign). The wheel must be free: hands off."""
+    wheel.set_autocenter(0)
+    wheel.stop_force()
+    try:
+        before = _collect(wheel, 0.3)
+        during = _collect(wheel, push_s, level)
+        wheel.stop_force()
+        after = _collect(wheel, 0.1)
+        # Push back the other way so the wheel ends up near where it started.
+        _collect(wheel, push_s, -level)
+    finally:
+        wheel.stop_force()
+    moved = (during + after)
+    if not moved:
+        raise G27Error("No wheel position reports arrived while pushing. Check "
+                       "'python -m g27bridge wheel monitor'.")
+    start = (before or moved)[-1 if before else 0]
+    delta = max(moved, key=lambda r: abs(r - start)) - start
+    if abs(delta) < 40:  # about 2 degrees at 900
+        raise G27Error(f"The wheel barely moved ({delta:+d} counts). Take your "
+                       "hands off the wheel and try again.")
+    sign = 1 if delta > 0 else -1
+    log(f"Positive force turned the wheel {delta:+d} counts: force_axis_sign = {sign:+d}")
+    return sign
+
+
 def rpm_leds(fraction):
     """Map 0..1 of redline to the G27's 5 rev LEDs (bit mask)."""
     if fraction >= 0.97:
@@ -192,6 +319,29 @@ def _cmd_info(_args):
         print("No G27 found.")
 
 
+def _cmd_monitor(wheel, range_deg):
+    range_deg = wheel.set_range(range_deg)
+    print(f"Range {range_deg} deg. Turn the wheel: left should read low, right high. "
+          "Ctrl+C stops.")
+    last, last_print = None, 0.0
+    try:
+        while True:
+            data = wheel.dev.read(64)
+            if data:
+                last = data
+            now = time.monotonic()
+            if last and now - last_print > 0.05:
+                last_print = now
+                raw = parse_wheel(last)
+                ang = "" if raw is None else f"raw {raw:5d}  {angle_deg(raw, range_deg):+7.1f} deg"
+                sys.stdout.write("\r" + " ".join(f"{b:02x}" for b in last[:11]) + "   " + ang + "   ")
+                sys.stdout.flush()
+            if not data:
+                time.sleep(0.002)
+    except KeyboardInterrupt:
+        print()
+
+
 def main(argv=None, prog=None):
     p = argparse.ArgumentParser(prog=prog, description="Control a Logitech G27 without Logitech drivers.")
     p.add_argument("--force", action="store_true",
@@ -204,6 +354,10 @@ def main(argv=None, prog=None):
     a = sub.add_parser("autocenter", help="set centering spring (0-100%%)")
     a.add_argument("percent", type=float)
     sub.add_parser("test-ffb", help="push the wheel briefly each way")
+    m = sub.add_parser("monitor", help="show the wheel position read over HID (Ctrl+C stops)")
+    m.add_argument("--range", type=int, default=900,
+                   help="range to set while monitoring, degrees (default 900)")
+    sub.add_parser("calibrate", help="learn the force direction (hands off the wheel)")
     args = p.parse_args(argv)
 
     try:
@@ -228,6 +382,14 @@ def main(argv=None, prog=None):
                     time.sleep(1.0)
                 wheel.stop_force()
                 print("Done. If the wheel moved both ways, force feedback works.")
+            elif args.cmd == "monitor":
+                _cmd_monitor(wheel, args.range)
+            elif args.cmd == "calibrate":
+                print("Hands off the wheel: it will turn a little each way in 2 s...")
+                time.sleep(2.0)
+                sign = calibrate(wheel)
+                save_axis_sign(sign)
+                print(f"Saved to {WHEEL_CONFIG}.")
         finally:
             wheel.close()
     except G27Error as e:

@@ -1,7 +1,7 @@
 """Command line entry point.
 
     python -m g27bridge beamng [--dry-run] [--range N] ...   run the bridge for a game
-    python -m g27bridge wheel info|native|range|autocenter|test-ffb
+    python -m g27bridge wheel info|native|range|autocenter|test-ffb|monitor|calibrate
 """
 import argparse
 import sys
@@ -12,7 +12,8 @@ from .core import bridge, g27
 USAGE = """usage: python -m g27bridge <command> [options]
 
 commands:
-  wheel ...   control the wheel directly (info, native, range, autocenter, test-ffb)
+  wheel ...   control the wheel directly (info, native, range, autocenter, test-ffb,
+              monitor, calibrate)
 {apps}
 Run 'python -m g27bridge <command> -h' for that command's options."""
 
